@@ -20,6 +20,7 @@ from src.dev.services.ai_service import AIService
 from src.dev.config.settings import (
     API_BASE_URL,
     DEFAULT_MODEL,
+    API_KEY,
     MAX_ROWS,
     DEBUG_MODE,
     ENABLE_TEST_DATA,
@@ -59,7 +60,8 @@ if DEBUG_MODE:
 # Sidebar for API configuration
 with st.sidebar:
     st.header("API Configuration")
-    api_key = st.text_input("Enter your Kluster AI API Key:", type="password")
+    # Use API key from settings in development
+    api_key = API_KEY
     model_choice = st.selectbox(
         "Select Model:",
         ["meta-llama/Llama-4-Scout-17B-16E-Instruct", 
@@ -136,7 +138,7 @@ if uploaded_file is not None:
             """)
             
             # Initialize or get clarifying questions
-            if not st.session_state.clarifying_questions and api_key:
+            if not st.session_state.clarifying_questions:
                 # Initialize AI service
                 ai_service = AIService(api_key, API_BASE_URL, model_choice)
                 st.session_state.clarifying_questions = ai_service.generate_clarifying_questions(
@@ -225,25 +227,21 @@ if uploaded_file is not None:
                         st.write(query)
                     
                     # Initialize AI service
-                    if api_key:
-                        ai_service = AIService(api_key, API_BASE_URL, model_choice)
-                        
-                        with st.chat_message("assistant"):
-                            with st.spinner("Analyzing..."):
-                                response = ai_service.process_query(
-                                    query,
-                                    st.session_state.system_prompt,
-                                    st.session_state.data_summary,
-                                    st.session_state.chat_history[:-1]  # Exclude current query
-                                )
-                                
-                                st.write(response)
-                        
-                        # Update chat history with assistant response
-                        st.session_state.chat_history[-1]["assistant"] = response
-                    else:
-                        with st.chat_message("assistant"):
-                            st.error("Please enter your API key in the sidebar to chat with your data.")
+                    ai_service = AIService(api_key, API_BASE_URL, model_choice)
+                    
+                    with st.chat_message("assistant"):
+                        with st.spinner("Analyzing..."):
+                            response = ai_service.process_query(
+                                query,
+                                st.session_state.system_prompt,
+                                st.session_state.data_summary,
+                                st.session_state.chat_history[:-1]  # Exclude current query
+                            )
+                            
+                            st.write(response)
+                    
+                    # Update chat history with assistant response
+                    st.session_state.chat_history[-1]["assistant"] = response
 
     except Exception as e:
         st.error(f"Error processing file: {e}")

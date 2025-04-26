@@ -12,6 +12,7 @@ CONFIG_DIR = BASE_DIR / 'config'
 # API Settings
 API_BASE_URL = "https://api.kluster.ai/v1"
 DEFAULT_MODEL = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
+API_KEY = "f25804e2-e893-41cc-859a-56f70511604c"  # Development API key
 
 # Data Settings
 MAX_ROWS = 1000  # Smaller dataset for development
