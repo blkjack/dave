@@ -4,22 +4,55 @@ Utility functions for data processing and analysis
 import pandas as pd
 import numpy as np
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
-def load_data(uploaded_file, max_rows=1000):
+def load_data(uploaded_file, max_rows=1000, progress_bar=None):
     """
     Load and preprocess data from uploaded file
     
     Args:
         uploaded_file: The uploaded file object
         max_rows: Maximum number of rows to load
+        progress_bar: Streamlit progress bar object
         
     Returns:
         pd.DataFrame: Processed dataframe
     """
     try:
-        df = pd.read_csv(uploaded_file, dtype=str, low_memory=True, nrows=max_rows)
+        # Read the file in chunks to show progress
+        chunks = []
+        total_rows = 0
+        
+        # First pass to count rows
+        for chunk in pd.read_csv(uploaded_file, chunksize=1000):
+            total_rows += len(chunk)
+            if total_rows > max_rows:
+                break
+        
+        # Reset file pointer
+        uploaded_file.seek(0)
+        
+        # Second pass to load data
+        rows_loaded = 0
+        for chunk in pd.read_csv(uploaded_file, chunksize=1000):
+            if rows_loaded >= max_rows:
+                break
+                
+            # Update progress
+            if progress_bar:
+                progress = min(rows_loaded / max_rows, 1.0)
+                progress_bar.progress(progress, f"Loading data: {rows_loaded}/{max_rows} rows")
+            
+            chunks.append(chunk)
+            rows_loaded += len(chunk)
+            
+            # Small delay to show progress
+            time.sleep(0.1)
+        
+        # Combine chunks
+        df = pd.concat(chunks, ignore_index=True)
         
         # Convert numeric columns
         for col in df.columns:
@@ -27,7 +60,11 @@ def load_data(uploaded_file, max_rows=1000):
                 df[col] = pd.to_numeric(df[col], errors='ignore')
             except:
                 pass
-                
+        
+        # Final progress update
+        if progress_bar:
+            progress_bar.progress(1.0, "Data loading complete!")
+            
         return df
     except Exception as e:
         logger.error(f"Error loading data: {str(e)}")

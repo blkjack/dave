@@ -102,13 +102,20 @@ uploaded_file = st.file_uploader("Upload your CSV file (max 1,000 rows)", type=[
 # Process uploaded file
 if uploaded_file is not None:
     try:
+        # Create a progress bar
+        progress_bar = st.progress(0)
+        
         # Load data with progress bar
         with st.spinner("Loading data..."):
-            st.session_state.df = load_data(uploaded_file, MAX_ROWS)
+            st.session_state.df = load_data(uploaded_file, MAX_ROWS, progress_bar)
             st.session_state.data_summary = get_data_summary(st.session_state.df)
             
             # Detect dataset type
             st.session_state.dataset_type = detect_dataset_type(st.session_state.df)
+            
+            # Initialize understanding score based on dataset type
+            if st.session_state.dataset_type != "Unknown":
+                st.session_state.understanding_score = 30  # Start with 30% for known dataset types
             
         # Display data preview
         st.subheader("Data Preview")
@@ -117,9 +124,9 @@ if uploaded_file is not None:
         # Display basic statistics
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Rows", st.session_state.df.shape[0])
+            st.metric("Rows", len(st.session_state.df))
         with col2:
-            st.metric("Columns", st.session_state.df.shape[1])
+            st.metric("Columns", len(st.session_state.df.columns))
         with col3:
             st.metric("Dataset Type", st.session_state.dataset_type)
         with col4:
@@ -163,7 +170,9 @@ if uploaded_file is not None:
             
             # Display understanding progress
             if len(st.session_state.clarifying_answers) > 0:
-                new_score = min(99, st.session_state.understanding_score + len(st.session_state.clarifying_answers) * 2)
+                # Calculate new score: 30% base + 14% per answer (up to 100%)
+                new_score = min(100, 30 + len(st.session_state.clarifying_answers) * 14)
+                st.session_state.understanding_score = new_score
                 st.progress(new_score/100, f"Enhanced understanding: {new_score}%")
             
             # Generate domain-specific system prompt
