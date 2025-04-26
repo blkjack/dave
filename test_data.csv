@@ -1,0 +1,6 @@
+date,revenue,profit,expenses,campaign,clicks,conversions
+2023-01-01,1000,100,900,Summer Sale,100,10
+2023-01-02,1500,150,1350,Winter Sale,150,15
+2023-01-03,2000,200,1800,Spring Sale,200,20
+2023-01-04,2500,250,2250,Autumn Sale,250,25
+2023-01-05,3000,300,2700,Holiday Sale,300,30 
