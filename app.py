@@ -1,633 +1,173 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import io
-import json
-import time
-import altair as alt
-from openai import OpenAI
-import re
-from datetime import datetime
-
-# Page configuration
-st.set_page_config(
-    page_title="Advanced Data Analyzer",
-    page_icon="📊",
-    layout="wide"
-)
-
-# Initialize session state variables
-if 'df' not in st.session_state:
-    st.session_state.df = None
-if 'data_summary' not in st.session_state:
-    st.session_state.data_summary = None
-if 'history' not in st.session_state:
-    st.session_state.history = []
-if 'understanding_score' not in st.session_state:
-    st.session_state.understanding_score = 0
-if 'dataset_type' not in st.session_state:
-    st.session_state.dataset_type = "Unknown"
-if 'clarifying_questions' not in st.session_state:
-    st.session_state.clarifying_questions = []
-if 'clarifying_answers' not in st.session_state:
-    st.session_state.clarifying_answers = {}
-if 'active_tab' not in st.session_state:
-    st.session_state.active_tab = "Training"
-if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
-
-# App title and description
-st.title("📊 Advanced Data Analyzer")
-st.markdown("""
-Upload your CSV file and interact with your data through natural language. 
-This app uses AI to analyze your data, provide insights, and generate visualizations.
-""")
-
-# Sidebar for API configuration
-with st.sidebar:
-    st.header("API Configuration")
-    api_key = st.text_input("Enter your Kluster AI API Key:", type="password")
-    model_choice = st.selectbox(
-        "Select Model:",
-        ["meta-llama/Llama-4-Scout-17B-16E-Instruct", 
-         "meta-llama/Llama-3-70B-Instruct",
-         "anthropic.claude-3-opus-20240229"]
-    )
-
-    # Credits management section
-    st.divider()
-    st.header("Credits Management")
-    # In a real app, you might track actual API usage
-    total_credits = 100
-    used_credits = st.session_state.get('used_credits', 0)
-    remaining_credits = total_credits - used_credits
+def extract_chart_from_response(response):
+    """
+    Extract chart specification from model response with improved parsing.
     
-    st.progress(used_credits/total_credits, f"Credits Used: {used_credits}/{total_credits}")
-    
-    if remaining_credits < 20:
-        st.warning(f"⚠️ Low credits: {remaining_credits} remaining")
-    else:
-        st.success(f"✅ Credits remaining: {remaining_credits}")
-    
-    # Reset credits button (for demo purposes)
-    if st.button("Reset Credits"):
-        st.session_state.used_credits = 0
-        st.rerun()
-    
-    st.divider()
-    st.markdown("### About")
-    st.markdown("Advanced Data Analyzer helps you understand your data through natural language.")
-    st.markdown("Made with ❤️ using Streamlit and Kluster AI")
-
-# Function to detect dataset type
-def detect_dataset_type(df):
-    # Get column names and check for keywords
-    cols = [col.lower() for col in df.columns]
-    col_string = " ".join(cols)
-    
-    # Simple rule-based detection
-    if any(term in col_string for term in ['price', 'cost', 'revenue', 'profit', 'expense', 'budget', 'sales']):
-        return "Finance"
-    elif any(term in col_string for term in ['campaign', 'customer', 'click', 'conversion', 'ctr', 'roi', 'lead']):
-        return "Marketing"
-    elif any(term in col_string for term in ['employee', 'salary', 'hire', 'performance', 'department', 'manager']):
-        return "HR"
-    elif any(term in col_string for term in ['patient', 'diagnosis', 'treatment', 'doctor', 'hospital', 'medication']):
-        return "Healthcare"
-    elif any(term in col_string for term in ['student', 'grade', 'course', 'class', 'teacher', 'school']):
-        return "Education"
-    else:
-        return "General"
-
-# Function to simulate calculating model understanding
-def calculate_understanding(df):
-    # In a real app, this might involve actually testing the model
-    # Here we just simulate a score
-    time.sleep(1)  # Simulate processing
-    # Return a score between 70 and 95
-    return round(70 + 25 * np.random.random(), 1)
-
-# Function to generate clarifying questions
-def generate_clarifying_questions(client, df_summary, dataset_type):
-    if not client:
-        # Return placeholder questions if no API client
-        return [
-            "Does this dataset include time-series data?",
-            "Are there any missing values that should be handled specially?",
-            "Should numerical outliers be excluded from analysis?",
-            "Are there specific relationships between columns you're interested in?",
-            "Should the analysis focus on trends or current snapshot?"
-        ]
+    Args:
+        response (str): The raw text response from the model
+        
+    Returns:
+        tuple: (cleaned_response, chart_data)
+    """
+    chart_data = None
+    cleaned_response = response
     
     try:
-        prompt = f"""
-        You are an expert data scientist. You've been given a new dataset with the following summary:
-        
-        {df_summary}
-        
-        Dataset type: {dataset_type}
-        
-        Please generate EXACTLY 5 yes/no questions that would help you better understand this dataset 
-        before analyzing it. These questions should help clarify ambiguities and improve analysis accuracy.
-        
-        Return ONLY the questions in a JSON array format, like this:
-        ["Question 1?", "Question 2?", "Question 3?", "Question 4?", "Question 5?"]
-        
-        Each question MUST be answerable with a simple yes or no.
-        """
-        
-        # Use minimal tokens to save credits
-        response = client.chat.completions.create(
-            model=model_choice,
-            messages=[{"role": "user", "content": prompt}],
-            max_completion_tokens=500,
-            temperature=0.1
-        )
-        
-        # Extract JSON from response
-        response_text = response.choices[0].message.content
-        match = re.search(r'\[.*\]', response_text, re.DOTALL)
+        # Pattern 1: Look for JSON chart spec with improved regex
+        chart_pattern = r'\{[\s\n]*["\'"]chart_type["\'][\s\n]*:.*?\}'
+        match = re.search(chart_pattern, response, re.DOTALL)
         
         if match:
-            questions = json.loads(match.group(0))
-            # Ensure we have exactly 5 questions
-            return questions[:5] if len(questions) >= 5 else questions + ["Is this data complete?"] * (5 - len(questions))
-        else:
-            raise ValueError("Could not parse questions from response")
+            chart_spec_str = match.group(0)
+            # Clean up the string - replace single quotes with double quotes if needed
+            chart_spec_str = chart_spec_str.replace("'", '"')
             
-    except Exception as e:
-        st.error(f"Error generating questions: {e}")
-        return [
-            "Does this dataset contain time-series data?",
-            "Are there any missing values that should be handled specially?",
-            "Should numerical outliers be excluded from analysis?",
-            "Are there specific relationships between columns you're interested in?",
-            "Should the analysis focus on trends or current snapshot?"
-        ]
-
-# Function to generate domain-specific system prompt
-def get_domain_prompt(dataset_type, df_summary, clarifying_answers):
-    # Base system prompt
-    base_prompt = f"""
-    You are an expert data analyst specializing in {dataset_type} data analysis.
-    
-    Dataset Summary:
-    {df_summary}
-    
-    User clarifications:
-    """
-    
-    # Add clarifying answers
-    for q, a in clarifying_answers.items():
-        base_prompt += f"\n- Q: {q}\n  A: {a}"
-    
-    # Add domain-specific instructions
-    if dataset_type == "Finance":
-        base_prompt += """
-        \nSpecial instructions for Finance data:
-        - When analyzing financial metrics, consider YoY growth and margins
-        - Express monetary values with appropriate currency symbols
-        - Focus on ROI, profitability, and financial performance metrics
-        - Consider seasonality in financial data
-        """
-    elif dataset_type == "Marketing":
-        base_prompt += """
-        \nSpecial instructions for Marketing data:
-        - Focus on conversion rates, CAC, CLV, and ROI metrics
-        - Consider campaign performance and audience segmentation
-        - Look for correlations between marketing efforts and outcomes
-        - Provide actionable marketing insights
-        """
-    elif dataset_type == "HR":
-        base_prompt += """
-        \nSpecial instructions for HR data:
-        - Focus on employee retention, satisfaction, and performance metrics
-        - Consider departmental differences and team dynamics
-        - Analyze compensation equity and promotion patterns
-        - Look for factors that affect recruitment and turnover
-        """
-    elif dataset_type == "Healthcare":
-        base_prompt += """
-        \nSpecial instructions for Healthcare data:
-        - Focus on patient outcomes, treatment efficacy, and care quality
-        - Consider demographic factors in health outcomes
-        - Analyze resource utilization and operational efficiency
-        - Be mindful of privacy considerations in analysis
-        """
-    elif dataset_type == "Education":
-        base_prompt += """
-        \nSpecial instructions for Education data:
-        - Focus on student performance, learning outcomes, and engagement
-        - Consider demographic factors in educational outcomes
-        - Analyze teaching effectiveness and resource allocation
-        - Look for patterns in student achievement and growth
-        """
-    
-    base_prompt += """
-    \nGeneral instructions:
-    - Provide concise, actionable insights
-    - When generating charts, use clear labels and titles
-    - Present numerical results with appropriate precision
-    - Highlight unexpected patterns or anomalies
-    - When answering questions, be direct and to the point
-    """
-    
-    return base_prompt
-
-# Function to process user query with chain of prompts
-def process_query(client, query, system_prompt, df_summary, chat_history=None):
-    if not client:
-        return "Please enter your API key in the sidebar to analyze data."
-    
-    try:
-        # First prompt: Query understanding and planning
-        planning_prompt = f"""
-        User query: "{query}"
-        
-        Dataset summary:
-        {df_summary}
-        
-        First, identify what the user is asking for. Then create a step-by-step plan to answer their query.
-        Return ONLY the plan in JSON format like this:
-        {{
-            "query_type": "statistical_analysis|visualization|prediction|simple_lookup|complex_analysis",
-            "columns_needed": ["col1", "col2"],
-            "analysis_steps": ["step1", "step2", "step3"],
-            "visualization_needed": true|false,
-            "visualization_type": "bar|line|scatter|pie|none"
-        }}
-        """
-        
-        # Run the planning prompt
-        planning_response = client.chat.completions.create(
-            model=model_choice,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": planning_prompt}
-            ],
-            max_completion_tokens=500,
-            temperature=0.1
-        )
-        
-        planning_text = planning_response.choices[0].message.content
-        
-        # Extract JSON from response
-        match = re.search(r'\{.*\}', planning_text, re.DOTALL)
-        if not match:
-            raise ValueError("Could not parse planning response")
-        
-        plan = json.loads(match.group(0))
-        
-        # Second prompt: Execute analysis based on plan
-        execution_prompt = f"""
-        User query: "{query}"
-        
-        Analysis plan: {json.dumps(plan)}
-        
-        Execute this analysis plan on the dataset. 
-        
-        If visualization is needed, return a specification for it.
-        For a chart, provide a JSON specification in this format:
-        {{
-            "chart_type": "bar|line|scatter|pie",
-            "title": "Chart Title",
-            "x_axis": "column_name",
-            "y_axis": "column_name",
-            "data": [[x1, y1], [x2, y2], ...],
-            "labels": ["label1", "label2", ...] 
-        }}
-        
-        Return your complete analysis with:
-        1. Direct answer to the query
-        2. Key numerical findings
-        3. Chart specification (if applicable)
-        4. 2-3 key insights
-        
-        Be concise and focused.
-        """
-        
-        # Messages for execution, including chat history if provided
-        messages = [{"role": "system", "content": system_prompt}]
-        
-        # Add chat history if provided (limited to last 3 exchanges to save tokens)
-        if chat_history:
-            for i, exchange in enumerate(chat_history[-3:]):
-                messages.append({"role": "user", "content": exchange["user"]})
-                if "assistant" in exchange:
-                    messages.append({"role": "assistant", "content": exchange["assistant"]})
-        
-        messages.append({"role": "user", "content": execution_prompt})
-        
-        # Run the execution prompt
-        execution_response = client.chat.completions.create(
-            model=model_choice,
-            messages=messages,
-            max_completion_tokens=1000,
-            temperature=0.2
-        )
-        
-        # Increment used credits
-        st.session_state.used_credits = st.session_state.get('used_credits', 0) + 1
-        
-        return execution_response.choices[0].message.content
-        
-    except Exception as e:
-        return f"Error processing query: {e}"
-
-# Main area for file upload and data display
-uploaded_file = st.file_uploader("Upload your CSV file (max 30,000 rows)", type=["csv"])
-
-# Process uploaded file
-if uploaded_file is not None:
-    try:
-        # Load data with progress bar
-        with st.spinner("Loading data..."):
-            df = pd.read_csv(uploaded_file, dtype=str, low_memory=True, nrows=30000)
-            st.session_state.df = df
+            # Parse the JSON
+            chart_data = json.loads(chart_spec_str)
             
-            # Convert numeric columns from string to float for analysis
-            for col in df.columns:
+            # Remove the chart spec from displayed response
+            cleaned_response = re.sub(r'\{[\s\n]*["\'"]chart_type["\'"][\s\n]*:.*?\}', '', response, flags=re.DOTALL)
+            
+        # Pattern 2: Look for code blocks with JSON chart specifications
+        if not chart_data:
+            code_block_pattern = r'```(?:json)?\s*(\{[\s\S]*?\})\s*```'
+            code_matches = re.findall(code_block_pattern, response, re.DOTALL)
+            
+            for code_match in code_matches:
                 try:
-                    df[col] = pd.to_numeric(df[col], errors='ignore')
+                    # Clean up and parse potential chart JSON
+                    potential_chart = json.loads(code_match.replace("'", '"'))
+                    if "chart_type" in potential_chart:
+                        chart_data = potential_chart
+                        # Remove this code block from the response
+                        cleaned_response = re.sub(r'```(?:json)?\s*\{[\s\S]*?\}\s*```', '', response, flags=re.DOTALL)
+                        break
                 except:
-                    pass
-                    
-            st.session_state.data_summary = df.describe(include='all').to_string()
-            
-            # Detect dataset type
-            st.session_state.dataset_type = detect_dataset_type(df)
-            
-            # Calculate understanding score
-            st.session_state.understanding_score = calculate_understanding(df)
-            
-            # Reset session state for a new file
-            st.session_state.history = []
-            st.session_state.clarifying_questions = []
-            st.session_state.clarifying_answers = {}
-            st.session_state.chat_history = []
-            
-        # Display data preview
-        st.subheader("Data Preview")
-        st.dataframe(df.head(), use_container_width=True)
+                    continue
         
-        # Display basic statistics
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Rows", df.shape[0])
-        with col2:
-            st.metric("Columns", df.shape[1])
-        with col3:
-            st.metric("Dataset Type", st.session_state.dataset_type)
-        with col4:
-            st.metric("Understanding Score", f"{st.session_state.understanding_score}%")
-            
-        # Initialize the system prompt in history
-        st.session_state.history = [{"role": "system", "content": f"Data Summary:\n{st.session_state.data_summary}"}]
-        
-        # Set up tabs for Training and Chat
-        tab1, tab2 = st.tabs(["Training & Understanding", "Chat & Analysis"])
-        
-        # Training tab content
-        with tab1:
-            st.header(f"Training on {st.session_state.dataset_type} Dataset")
-            st.markdown(f"""
-            The AI has analyzed your dataset and determined it's likely a **{st.session_state.dataset_type}** dataset.
-            Current understanding level: **{st.session_state.understanding_score}%**
-            
-            Please answer these clarifying questions to improve analysis accuracy:
-            """)
-            
-            # Initialize or get clarifying questions
-            if not st.session_state.clarifying_questions and api_key:
-                # Initialize Kluster AI client
-                client = OpenAI(
-                    api_key=api_key,
-                    base_url="https://api.kluster.ai/v1"
-                )
-                st.session_state.clarifying_questions = generate_clarifying_questions(
-                    client, 
-                    st.session_state.data_summary,
-                    st.session_state.dataset_type
-                )
-            elif not st.session_state.clarifying_questions:
-                st.session_state.clarifying_questions = [
-                    "Does this dataset include time-series data?",
-                    "Are there any missing values that should be handled specially?",
-                    "Should numerical outliers be excluded from analysis?",
-                    "Are there specific relationships between columns you're interested in?",
-                    "Should the analysis focus on trends or current snapshot?"
-                ]
-            
-            # Display clarifying questions with yes/no toggles
-            for i, question in enumerate(st.session_state.clarifying_questions):
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    st.write(f"**Q{i+1}:** {question}")
-                with col2:
-                    answer = st.selectbox(
-                        f"Answer {i+1}", 
-                        options=["Select", "Yes", "No"], 
-                        key=f"answer_{i}"
-                    )
-                    if answer != "Select":
-                        st.session_state.clarifying_answers[question] = answer
-            
-            # Display understanding progress
-            if len(st.session_state.clarifying_answers) > 0:
-                new_score = min(99, st.session_state.understanding_score + len(st.session_state.clarifying_answers) * 2)
-                st.progress(new_score/100, f"Enhanced understanding: {new_score}%")
-            
-            # Generate domain-specific system prompt
-            if len(st.session_state.clarifying_answers) > 0:
-                system_prompt = get_domain_prompt(
-                    st.session_state.dataset_type,
-                    st.session_state.data_summary,
-                    st.session_state.clarifying_answers
-                )
-                st.session_state.system_prompt = system_prompt
+        # Format the chart data if it's in an unexpected format
+        if chart_data:
+            # Ensure data is properly formatted
+            if "data" in chart_data:
+                # If data is a list of values but not paired with labels
+                if isinstance(chart_data["data"], list) and all(isinstance(x, (int, float)) for x in chart_data["data"]):
+                    if "labels" in chart_data and len(chart_data["labels"]) == len(chart_data["data"]):
+                        chart_data["data"] = [[label, value] for label, value in zip(chart_data["labels"], chart_data["data"])]
                 
-                st.success("✅ Training complete! Switch to the Chat tab to start analyzing your data.")
-            else:
-                st.info("Please answer at least one question to improve model understanding.")
-        
-        # Chat tab content
-        with tab2:
-            st.header("Chat with Your Data")
-            
-            # Check if training has been done
-            if not st.session_state.get('system_prompt'):
-                st.warning("Please complete the training in the first tab before chatting.")
-            else:
-                # Display chat history
-                for chat in st.session_state.chat_history:
-                    with st.chat_message("user"):
-                        st.write(chat["user"])
-                    if "assistant" in chat:
-                        with st.chat_message("assistant"):
-                            st.write(chat["assistant"])
-                            
-                            # Display chart if present
-                            if "chart_data" in chat:
-                                try:
-                                    chart_spec = chat["chart_data"]
-                                    if chart_spec["chart_type"] == "bar":
-                                        chart_data = pd.DataFrame({
-                                            'x': chart_spec["labels"],
-                                            'y': [d[1] for d in chart_spec["data"]]
-                                        })
-                                        st.bar_chart(chart_data, x='x', y='y')
-                                    elif chart_spec["chart_type"] == "line":
-                                        chart_data = pd.DataFrame({
-                                            'x': chart_spec["labels"],
-                                            'y': [d[1] for d in chart_spec["data"]]
-                                        })
-                                        st.line_chart(chart_data, x='x', y='y')
-                                    elif chart_spec["chart_type"] == "scatter":
-                                        chart_data = pd.DataFrame(chart_spec["data"], columns=['x', 'y'])
-                                        st.scatter_chart(chart_data, x='x', y='y')
-                                    elif chart_spec["chart_type"] == "pie":
-                                        # Create pie chart using matplotlib
-                                        fig, ax = plt.subplots()
-                                        ax.pie([d[1] for d in chart_spec["data"]], 
-                                               labels=chart_spec["labels"], 
-                                               autopct='%1.1f%%')
-                                        ax.set_title(chart_spec["title"])
-                                        st.pyplot(fig)
-                                except Exception as e:
-                                    st.error(f"Error displaying chart: {e}")
-                
-                # Input for new query
-                query = st.chat_input("Ask a question about your data...")
-                
-                if query:
-                    # Add user query to chat history
-                    st.session_state.chat_history.append({"user": query})
-                    
-                    # Display user message
-                    with st.chat_message("user"):
-                        st.write(query)
-                    
-                    # Initialize Kluster AI client
-                    if api_key:
-                        client = OpenAI(
-                            api_key=api_key,
-                            base_url="https://api.kluster.ai/v1"
-                        )
-                        
-                        with st.chat_message("assistant"):
-                            with st.spinner("Analyzing..."):
-                                response = process_query(
-                                    client,
-                                    query,
-                                    st.session_state.system_prompt,
-                                    st.session_state.data_summary,
-                                    st.session_state.chat_history[:-1]  # Exclude current query
-                                )
-                                
-                                # Check for chart data in response
-                                chart_data = None
-                                try:
-                                    # Look for JSON chart spec
-                                    match = re.search(r'\{\"chart_type\".*?\}', response, re.DOTALL)
-                                    if match:
-                                        chart_spec_str = match.group(0)
-                                        chart_data = json.loads(chart_spec_str)
-                                        # Remove the chart spec from displayed response
-                                        response = response.replace(chart_spec_str, "")
-                                except:
-                                    pass
-                                
-                                st.write(response)
-                                
-                                # Display chart if present
-                                if chart_data:
-                                    try:
-                                        if chart_data["chart_type"] == "bar":
-                                            chart_df = pd.DataFrame({
-                                                'x': chart_data["labels"],
-                                                'y': [d[1] for d in chart_data["data"]]
-                                            })
-                                            st.bar_chart(chart_df, x='x', y='y')
-                                        elif chart_data["chart_type"] == "line":
-                                            chart_df = pd.DataFrame({
-                                                'x': chart_data["labels"],
-                                                'y': [d[1] for d in chart_data["data"]]
-                                            })
-                                            st.line_chart(chart_df, x='x', y='y')
-                                        elif chart_data["chart_type"] == "scatter":
-                                            chart_df = pd.DataFrame(chart_data["data"], columns=['x', 'y'])
-                                            st.scatter_chart(chart_df, x='x', y='y')
-                                        elif chart_data["chart_type"] == "pie":
-                                            # Create pie chart using matplotlib
-                                            fig, ax = plt.subplots()
-                                            ax.pie([d[1] for d in chart_data["data"]], 
-                                                  labels=chart_data["labels"], 
-                                                  autopct='%1.1f%%')
-                                            ax.set_title(chart_data["title"])
-                                            st.pyplot(fig)
-                                    except Exception as e:
-                                        st.error(f"Error displaying chart: {e}")
-                        
-                        # Update chat history with assistant response
-                        st.session_state.chat_history[-1]["assistant"] = response
-                        if chart_data:
-                            st.session_state.chat_history[-1]["chart_data"] = chart_data
-                    else:
-                        with st.chat_message("assistant"):
-                            st.error("Please enter your API key in the sidebar to chat with your data.")
-
+                # Handle special case where data is a list of [index, value] pairs
+                elif isinstance(chart_data["data"], list) and all(isinstance(x, list) for x in chart_data["data"]):
+                    # Add labels if missing
+                    if "labels" not in chart_data:
+                        if all(len(x) == 2 for x in chart_data["data"]):
+                            chart_data["labels"] = [str(item[0]) for item in chart_data["data"]]
+    
     except Exception as e:
-        st.error(f"Error processing file: {e}")
+        print(f"Chart extraction error: {str(e)}")
+    
+    # Clean up any lingering chart specifications in code blocks
+    cleaned_response = re.sub(r'```.*?chart_type.*?```', '', cleaned_response, flags=re.DOTALL)
+    
+    # Clean up any "Chart Specification" section entirely
+    chart_section_pattern = r'(?:\*\*Chart Specification\*\*|\#\#\# Chart Specification).*?(?:\n\n|\Z)'
+    cleaned_response = re.sub(chart_section_pattern, '', cleaned_response, flags=re.DOTALL)
+    
+    return cleaned_response, chart_data
 
-# Display instructions if no file is uploaded
-else:
-    st.info("👆 Please upload a CSV file to get started.")
+
+def render_chart(chart_data):
+    """
+    Renders a chart based on provided chart data specification.
     
-    # Example capabilities section
-    st.header("App Capabilities")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("Data Analysis")
-        st.markdown("""
-        - Upload CSV files (up to 30,000 rows)
-        - Natural language Q&A with your data
-        - Multi-turn conversation memory
-        - Automatic ambiguity resolution
-        - Domain-adaptive analysis (Finance, Marketing, HR, etc.)
-        """)
+    Args:
+        chart_data (dict): Chart specification with type, data, labels, etc.
         
-        st.subheader("Example Questions")
-        st.markdown("""
-        - "What's the average revenue by product category?"
-        - "Show me the trend of sales over the last quarter"
-        - "Which customers have the highest lifetime value?"
-        - "Identify potential anomalies in the transaction data"
-        - "Compare performance across different regions"
-        """)
+    Returns:
+        None: Displays chart using streamlit
+    """
+    try:
+        st.subheader(chart_data.get("title", "Data Visualization"))
         
-    with col2:
-        st.subheader("Interactive Features")
-        st.markdown("""
-        - AI training with clarifying questions
-        - Domain-specific analysis
-        - Automatic chart generation
-        - Context retention across queries
-        - Query optimization for credit efficiency
-        """)
+        # Normalize data format
+        if isinstance(chart_data["data"][0], list):
+            # If data is in [[index, value], [index, value]] format
+            values = [item[1] for item in chart_data["data"]]
+            # Use provided labels or index from data
+            labels = chart_data.get("labels", [str(item[0]) for item in chart_data["data"]])
+        else:
+            # If data is just a list of values
+            values = chart_data["data"]
+            labels = chart_data.get("labels", [f"Item {i+1}" for i in range(len(values))])
         
-        # Sample chart for demonstration
-        data = pd.DataFrame({
-            'Category': ['A', 'B', 'C', 'D', 'E'],
-            'Value': [5, 7, 3, 9, 6]
+        # Create DataFrame for Altair/Matplotlib
+        chart_df = pd.DataFrame({
+            'category': labels,
+            'value': values
         })
         
-        st.subheader("Sample Visualization")
-        st.bar_chart(data, x='Category', y='Value')
-        st.caption("Example of auto-generated charts based on your queries")
-
-# Add footer
-st.divider()
-st.markdown(f"© {datetime.now().year} Advanced Data Analyzer | Last updated: April 2025")
+        if chart_data["chart_type"].lower() == "bar":
+            chart = alt.Chart(chart_df).mark_bar().encode(
+                x=alt.X('category', title=chart_data.get("x_axis", "Category"), sort=None),
+                y=alt.Y('value', title=chart_data.get("y_axis", "Value"))
+            ).properties(
+                title=chart_data.get("title", "Bar Chart"),
+                width=600,
+                height=400
+            )
+            st.altair_chart(chart, use_container_width=True)
+            
+        elif chart_data["chart_type"].lower() == "line":
+            # Sort by category if it's numeric
+            try:
+                chart_df['category'] = pd.to_numeric(chart_df['category'])
+                chart_df = chart_df.sort_values('category')
+            except:
+                pass
+                
+            line_chart = alt.Chart(chart_df).mark_line().encode(
+                x=alt.X('category', title=chart_data.get("x_axis", "Category")),
+                y=alt.Y('value', title=chart_data.get("y_axis", "Value"))
+            ).properties(
+                title=chart_data.get("title", "Line Chart"),
+                width=600,
+                height=400
+            )
+            st.altair_chart(line_chart, use_container_width=True)
+            
+        elif chart_data["chart_type"].lower() == "scatter":
+            # For scatter plots, ensure we have x and y values
+            if isinstance(chart_data["data"][0], list) and len(chart_data["data"][0]) == 2:
+                scatter_df = pd.DataFrame(chart_data["data"], columns=['x', 'y'])
+                
+                scatter_chart = alt.Chart(scatter_df).mark_circle(size=60).encode(
+                    x=alt.X('x', title=chart_data.get("x_axis", "X")),
+                    y=alt.Y('y', title=chart_data.get("y_axis", "Y"))
+                ).properties(
+                    title=chart_data.get("title", "Scatter Plot"),
+                    width=600,
+                    height=400
+                )
+                st.altair_chart(scatter_chart, use_container_width=True)
+            else:
+                st.error("Scatter plot requires paired x,y data points")
+                
+        elif chart_data["chart_type"].lower() == "pie":
+            # Create pie chart using matplotlib
+            fig, ax = plt.subplots(figsize=(10, 6))
+            
+            # Ensure values are numeric
+            values = [float(v) for v in values]
+            
+            # Create the pie chart
+            ax.pie(values, 
+                   labels=labels, 
+                   autopct='%1.1f%%',
+                   startangle=90,
+                   shadow=False)
+            ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle
+            ax.set_title(chart_data.get("title", "Pie Chart"))
+            
+            st.pyplot(fig)
+            
+    except Exception as e:
+        st.error(f"Error rendering chart: {str(e)}")
+        st.write("Chart data received:")
+        st.json(chart_data)
