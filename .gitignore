@@ -21,8 +21,8 @@ wheels/
 *.egg
 
 # Virtual Environment
+.venv/
 venv/
-env/
 ENV/
 
 # IDE
@@ -31,18 +31,17 @@ ENV/
 *.swp
 *.swo
 
-# Logs
-*.log
-dev.log
-prod.log
-
 # Environment variables
 .env
 .env.*
 
-# Streamlit
-.streamlit/
+# Logs
+*.log
+logs/
 
 # OS
 .DS_Store
-Thumbs.db 
+Thumbs.db
+
+# Streamlit
+.streamlit/ 
