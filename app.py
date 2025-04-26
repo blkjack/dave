@@ -9,6 +9,11 @@ import altair as alt
 from openai import OpenAI
 import re
 from datetime import datetime
+from dotenv import load_dotenv
+import os
+
+# Load environment variables
+load_dotenv()
 
 # Page configuration
 st.set_page_config(
@@ -254,8 +259,7 @@ def process_query(client, query, system_prompt, df_summary, chat_history=None):
             "query_type": "statistical_analysis|visualization|prediction|simple_lookup|complex_analysis",
             "columns_needed": ["col1", "col2"],
             "analysis_steps": ["step1", "step2", "step3"],
-            "visualization_needed": true|false,
-            "visualization_type": "bar|line|scatter|pie|none"
+            "analysis_description": "Brief description of what the analysis will show"
         }}
         """
         
@@ -287,24 +291,27 @@ def process_query(client, query, system_prompt, df_summary, chat_history=None):
         
         Execute this analysis plan on the dataset. 
         
-        If visualization is needed, return a specification for it.
-        For a chart, provide a JSON specification in this format:
-        {{
-            "chart_type": "bar|line|scatter|pie",
-            "title": "Chart Title",
-            "x_axis": "column_name",
-            "y_axis": "column_name",
-            "data": [[x1, y1], [x2, y2], ...],
-            "labels": ["label1", "label2", ...] 
-        }}
+        Return your analysis in this EXACT format:
         
-        Return your complete analysis with:
-        1. Direct answer to the query
-        2. Key numerical findings
-        3. Chart specification (if applicable)
-        4. 2-3 key insights
+        ### Direct Answer
+        [One sentence answer to the query]
         
-        Be concise and focused.
+        ### Key Numerical Findings
+        - [Finding 1]
+        - [Finding 2]
+        - [Finding 3]
+        
+        ### Key Insights
+        - [Insight 1]
+        - [Insight 2]
+        
+        ### Next Action
+        [Recommended next action]
+        
+        ### Reason
+        [Brief explanation of why this action is recommended]
+        
+        Be extremely concise. Use bullet points. No additional text or formatting.
         """
         
         # Messages for execution, including chat history if provided
@@ -385,8 +392,8 @@ if uploaded_file is not None:
         # Initialize the system prompt in history
         st.session_state.history = [{"role": "system", "content": f"Data Summary:\n{st.session_state.data_summary}"}]
         
-        # Set up tabs for Training and Chat
-        tab1, tab2 = st.tabs(["Training & Understanding", "Chat & Analysis"])
+        # Set up tabs for Training, Q&A, and Charts
+        tab1, tab2, tab3 = st.tabs(["Training & Understanding", "Q&A", "Charts"])
         
         # Training tab content
         with tab1:
@@ -447,17 +454,17 @@ if uploaded_file is not None:
                 )
                 st.session_state.system_prompt = system_prompt
                 
-                st.success("✅ Training complete! Switch to the Chat tab to start analyzing your data.")
+                st.success("✅ Training complete! Switch to the Q&A or Charts tab to start analyzing your data.")
             else:
                 st.info("Please answer at least one question to improve model understanding.")
         
-        # Chat tab content
+        # Q&A tab content
         with tab2:
-            st.header("Chat with Your Data")
+            st.header("Ask Questions About Your Data")
             
             # Check if training has been done
             if not st.session_state.get('system_prompt'):
-                st.warning("Please complete the training in the first tab before chatting.")
+                st.warning("Please complete the training in the first tab before asking questions.")
             else:
                 # Display chat history
                 for chat in st.session_state.chat_history:
@@ -465,37 +472,8 @@ if uploaded_file is not None:
                         st.write(chat["user"])
                     if "assistant" in chat:
                         with st.chat_message("assistant"):
-                            st.write(chat["assistant"])
-                            
-                            # Display chart if present
-                            if "chart_data" in chat:
-                                try:
-                                    chart_spec = chat["chart_data"]
-                                    if chart_spec["chart_type"] == "bar":
-                                        chart_data = pd.DataFrame({
-                                            'x': chart_spec["labels"],
-                                            'y': [d[1] for d in chart_spec["data"]]
-                                        })
-                                        st.bar_chart(chart_data, x='x', y='y')
-                                    elif chart_spec["chart_type"] == "line":
-                                        chart_data = pd.DataFrame({
-                                            'x': chart_spec["labels"],
-                                            'y': [d[1] for d in chart_spec["data"]]
-                                        })
-                                        st.line_chart(chart_data, x='x', y='y')
-                                    elif chart_spec["chart_type"] == "scatter":
-                                        chart_data = pd.DataFrame(chart_spec["data"], columns=['x', 'y'])
-                                        st.scatter_chart(chart_data, x='x', y='y')
-                                    elif chart_spec["chart_type"] == "pie":
-                                        # Create pie chart using matplotlib
-                                        fig, ax = plt.subplots()
-                                        ax.pie([d[1] for d in chart_spec["data"]], 
-                                               labels=chart_spec["labels"], 
-                                               autopct='%1.1f%%')
-                                        ax.set_title(chart_spec["title"])
-                                        st.pyplot(fig)
-                                except Exception as e:
-                                    st.error(f"Error displaying chart: {e}")
+                            # Display the response in markdown format
+                            st.markdown(chat["assistant"])
                 
                 # Input for new query
                 query = st.chat_input("Ask a question about your data...")
@@ -517,65 +495,124 @@ if uploaded_file is not None:
                         
                         with st.chat_message("assistant"):
                             with st.spinner("Analyzing..."):
-                                response = process_query(
-                                    client,
-                                    query,
-                                    st.session_state.system_prompt,
-                                    st.session_state.data_summary,
-                                    st.session_state.chat_history[:-1]  # Exclude current query
-                                )
-                                
-                                # Check for chart data in response
-                                chart_data = None
                                 try:
-                                    # Look for JSON chart spec
-                                    match = re.search(r'\{\"chart_type\".*?\}', response, re.DOTALL)
-                                    if match:
-                                        chart_spec_str = match.group(0)
-                                        chart_data = json.loads(chart_spec_str)
-                                        # Remove the chart spec from displayed response
-                                        response = response.replace(chart_spec_str, "")
-                                except:
-                                    pass
-                                
-                                st.write(response)
-                                
-                                # Display chart if present
-                                if chart_data:
-                                    try:
-                                        if chart_data["chart_type"] == "bar":
-                                            chart_df = pd.DataFrame({
-                                                'x': chart_data["labels"],
-                                                'y': [d[1] for d in chart_data["data"]]
-                                            })
-                                            st.bar_chart(chart_df, x='x', y='y')
-                                        elif chart_data["chart_type"] == "line":
-                                            chart_df = pd.DataFrame({
-                                                'x': chart_data["labels"],
-                                                'y': [d[1] for d in chart_data["data"]]
-                                            })
-                                            st.line_chart(chart_df, x='x', y='y')
-                                        elif chart_data["chart_type"] == "scatter":
-                                            chart_df = pd.DataFrame(chart_data["data"], columns=['x', 'y'])
-                                            st.scatter_chart(chart_df, x='x', y='y')
-                                        elif chart_data["chart_type"] == "pie":
-                                            # Create pie chart using matplotlib
-                                            fig, ax = plt.subplots()
-                                            ax.pie([d[1] for d in chart_data["data"]], 
-                                                  labels=chart_data["labels"], 
-                                                  autopct='%1.1f%%')
-                                            ax.set_title(chart_data["title"])
-                                            st.pyplot(fig)
-                                    except Exception as e:
-                                        st.error(f"Error displaying chart: {e}")
-                        
-                        # Update chat history with assistant response
-                        st.session_state.chat_history[-1]["assistant"] = response
-                        if chart_data:
-                            st.session_state.chat_history[-1]["chart_data"] = chart_data
+                                    # Process the query
+                                    response = process_query(
+                                        client,
+                                        query,
+                                        st.session_state.system_prompt,
+                                        st.session_state.data_summary,
+                                        st.session_state.chat_history[:-1]  # Exclude current query
+                                    )
+                                    
+                                    # Display the formatted response
+                                    st.markdown(response)
+                                    
+                                    # Update chat history with assistant response
+                                    st.session_state.chat_history[-1]["assistant"] = response
+                                    
+                                except Exception as e:
+                                    error_message = f"""
+                                    ### Error Processing Query
+                                    
+                                    An error occurred while processing your query:
+                                    ```
+                                    {str(e)}
+                                    ```
+                                    
+                                    Please try rephrasing your question or check if the data contains the information you're looking for.
+                                    """
+                                    st.error(error_message)
+                                    st.session_state.chat_history[-1]["assistant"] = error_message
                     else:
                         with st.chat_message("assistant"):
                             st.error("Please enter your API key in the sidebar to chat with your data.")
+        
+        # Charts tab content
+        with tab3:
+            st.header("Data Visualization")
+            
+            # Check if training has been done
+            if not st.session_state.get('system_prompt'):
+                st.warning("Please complete the training in the first tab before creating charts.")
+            else:
+                # Chart type selection
+                chart_type = st.selectbox(
+                    "Select Chart Type",
+                    ["Bar Chart", "Line Chart", "Scatter Plot", "Pie Chart"]
+                )
+                
+                # Column selection
+                if st.session_state.df is not None:
+                    numeric_columns = st.session_state.df.select_dtypes(include=['int64', 'float64']).columns
+                    categorical_columns = st.session_state.df.select_dtypes(include=['object']).columns
+                    
+                    if chart_type in ["Bar Chart", "Pie Chart"]:
+                        x_column = st.selectbox("Select Category Column", categorical_columns)
+                        y_column = st.selectbox("Select Value Column", numeric_columns)
+                        
+                        if st.button("Generate Chart"):
+                            try:
+                                # Create the chart
+                                if chart_type == "Bar Chart":
+                                    chart_data = st.session_state.df.groupby(x_column)[y_column].count().reset_index()
+                                    st.bar_chart(chart_data, x=x_column, y=y_column, use_container_width=True)
+                                else:  # Pie Chart
+                                    chart_data = st.session_state.df.groupby(x_column)[y_column].count()
+                                    fig, ax = plt.subplots(figsize=(10, 6))
+                                    ax.pie(chart_data, labels=chart_data.index, autopct='%1.1f%%')
+                                    ax.set_title(f"Distribution of {y_column} by {x_column}")
+                                    st.pyplot(fig)
+                                    
+                                # Display insights
+                                st.subheader("Key Insights")
+                                st.markdown(f"""
+                                - The chart shows the distribution of {y_column} across different {x_column} categories
+                                - The highest value is {chart_data[y_column].max()} for {chart_data.loc[chart_data[y_column].idxmax(), x_column]}
+                                - The lowest value is {chart_data[y_column].min()} for {chart_data.loc[chart_data[y_column].idxmin(), x_column]}
+                                """)
+                            except Exception as e:
+                                st.error(f"Error generating chart: {str(e)}")
+                    
+                    elif chart_type == "Line Chart":
+                        x_column = st.selectbox("Select X-axis Column", numeric_columns)
+                        y_column = st.selectbox("Select Y-axis Column", numeric_columns)
+                        
+                        if st.button("Generate Chart"):
+                            try:
+                                chart_data = st.session_state.df.sort_values(x_column)
+                                st.line_chart(chart_data, x=x_column, y=y_column, use_container_width=True)
+                                
+                                # Display insights
+                                st.subheader("Key Insights")
+                                st.markdown(f"""
+                                - The line chart shows the trend of {y_column} over {x_column}
+                                - The highest value is {chart_data[y_column].max()}
+                                - The lowest value is {chart_data[y_column].min()}
+                                """)
+                            except Exception as e:
+                                st.error(f"Error generating chart: {str(e)}")
+                    
+                    elif chart_type == "Scatter Plot":
+                        x_column = st.selectbox("Select X-axis Column", numeric_columns)
+                        y_column = st.selectbox("Select Y-axis Column", numeric_columns)
+                        color_column = st.selectbox("Select Color Column (Optional)", ["None"] + list(categorical_columns))
+                        
+                        if st.button("Generate Chart"):
+                            try:
+                                if color_column == "None":
+                                    st.scatter_chart(st.session_state.df, x=x_column, y=y_column, use_container_width=True)
+                                else:
+                                    st.scatter_chart(st.session_state.df, x=x_column, y=y_column, color=color_column, use_container_width=True)
+                                
+                                # Display insights
+                                st.subheader("Key Insights")
+                                st.markdown(f"""
+                                - The scatter plot shows the relationship between {x_column} and {y_column}
+                                - The correlation coefficient is {st.session_state.df[x_column].corr(st.session_state.df[y_column]):.2f}
+                                """)
+                            except Exception as e:
+                                st.error(f"Error generating chart: {str(e)}")
 
     except Exception as e:
         st.error(f"Error processing file: {e}")
