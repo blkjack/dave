@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import logging
 import time
+import io
 
 logger = logging.getLogger(__name__)
 
@@ -21,22 +22,29 @@ def load_data(uploaded_file, max_rows=1000, progress_bar=None):
         pd.DataFrame: Processed dataframe
     """
     try:
+        # Read the file content into memory
+        content = uploaded_file.read()
+        uploaded_file.seek(0)  # Reset file pointer
+        
+        # Create a file-like object from the content
+        file_obj = io.StringIO(content.decode('utf-8'))
+        
         # Read the file in chunks to show progress
         chunks = []
         total_rows = 0
         
         # First pass to count rows
-        for chunk in pd.read_csv(uploaded_file, chunksize=1000):
+        for chunk in pd.read_csv(file_obj, chunksize=1000):
             total_rows += len(chunk)
             if total_rows > max_rows:
                 break
         
         # Reset file pointer
-        uploaded_file.seek(0)
+        file_obj.seek(0)
         
         # Second pass to load data
         rows_loaded = 0
-        for chunk in pd.read_csv(uploaded_file, chunksize=1000):
+        for chunk in pd.read_csv(file_obj, chunksize=1000):
             if rows_loaded >= max_rows:
                 break
                 
@@ -69,6 +77,10 @@ def load_data(uploaded_file, max_rows=1000, progress_bar=None):
     except Exception as e:
         logger.error(f"Error loading data: {str(e)}")
         raise
+    finally:
+        # Clean up
+        if 'file_obj' in locals():
+            file_obj.close()
 
 def detect_dataset_type(df):
     """
@@ -80,21 +92,25 @@ def detect_dataset_type(df):
     Returns:
         str: Dataset type (Finance, Marketing, HR, etc.)
     """
-    cols = [col.lower() for col in df.columns]
-    col_string = " ".join(cols)
-    
-    if any(term in col_string for term in ['price', 'cost', 'revenue', 'profit', 'expense', 'budget', 'sales']):
-        return "Finance"
-    elif any(term in col_string for term in ['campaign', 'customer', 'click', 'conversion', 'ctr', 'roi', 'lead']):
-        return "Marketing"
-    elif any(term in col_string for term in ['employee', 'salary', 'hire', 'performance', 'department', 'manager']):
-        return "HR"
-    elif any(term in col_string for term in ['patient', 'diagnosis', 'treatment', 'doctor', 'hospital', 'medication']):
-        return "Healthcare"
-    elif any(term in col_string for term in ['student', 'grade', 'course', 'class', 'teacher', 'school']):
-        return "Education"
-    else:
-        return "General"
+    try:
+        cols = [col.lower() for col in df.columns]
+        col_string = " ".join(cols)
+        
+        if any(term in col_string for term in ['price', 'cost', 'revenue', 'profit', 'expense', 'budget', 'sales']):
+            return "Finance"
+        elif any(term in col_string for term in ['campaign', 'customer', 'click', 'conversion', 'ctr', 'roi', 'lead']):
+            return "Marketing"
+        elif any(term in col_string for term in ['employee', 'salary', 'hire', 'performance', 'department', 'manager']):
+            return "HR"
+        elif any(term in col_string for term in ['patient', 'diagnosis', 'treatment', 'doctor', 'hospital', 'medication']):
+            return "Healthcare"
+        elif any(term in col_string for term in ['student', 'grade', 'course', 'class', 'teacher', 'school']):
+            return "Education"
+        else:
+            return "General"
+    except Exception as e:
+        logger.error(f"Error detecting dataset type: {str(e)}")
+        return "Unknown"
 
 def get_data_summary(df):
     """
@@ -106,7 +122,11 @@ def get_data_summary(df):
     Returns:
         str: Summary statistics
     """
-    return df.describe(include='all').to_string()
+    try:
+        return df.describe(include='all').to_string()
+    except Exception as e:
+        logger.error(f"Error generating data summary: {str(e)}")
+        return "Error generating summary"
 
 def create_test_dataset():
     """
@@ -115,8 +135,12 @@ def create_test_dataset():
     Returns:
         pd.DataFrame: Sample dataset
     """
-    return pd.DataFrame({
-        'date': pd.date_range(start='2023-01-01', periods=100),
-        'value': np.random.normal(100, 15, 100),
-        'category': np.random.choice(['A', 'B', 'C'], 100)
-    }) 
+    try:
+        return pd.DataFrame({
+            'date': pd.date_range(start='2023-01-01', periods=100),
+            'value': np.random.normal(100, 15, 100),
+            'category': np.random.choice(['A', 'B', 'C'], 100)
+        })
+    except Exception as e:
+        logger.error(f"Error creating test dataset: {str(e)}")
+        return pd.DataFrame() 
