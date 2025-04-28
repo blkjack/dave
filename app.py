@@ -17,7 +17,7 @@ load_dotenv()
 
 # Page configuration
 st.set_page_config(
-    page_title="Advanced Data Analyzer",
+    page_title="Data Analysis and Visualisation Engine",
     page_icon="📊",
     layout="wide"
 )
@@ -82,8 +82,8 @@ with st.sidebar:
     
     st.divider()
     st.markdown("### About")
-    st.markdown("Advanced Data Analyzer helps you understand your data through natural language.")
-    st.markdown("Made with ❤️ using Streamlit and Kluster AI")
+    st.markdown("Agent DAVE! your data analysis and Visualization engine helps you understand your data through natural language.")
+    st.markdown("Made with 🚀")
 
 # Function to detect dataset type
 def detect_dataset_type(df):
