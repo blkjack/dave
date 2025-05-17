@@ -52,7 +52,8 @@ This app uses AI to analyze your data, provide insights, and generate visualizat
 # Sidebar for API configuration
 with st.sidebar:
     st.header("API Configuration")
-    api_key = st.text_input("Enter your Kluster AI API Key:", type="password")
+    #api_key = st.text_input("Enter your Kluster AI API Key:", type="password")
+    api_key = '280348c1-eddc-4b9d-aba6-e7d2641c968d'
     model_choice = st.selectbox(
         "Select Model:",
         ["meta-llama/Llama-4-Scout-17B-16E-Instruct", 
